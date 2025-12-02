@@ -175,7 +175,17 @@ class EnhancedInfoMonitor:
     
     async def categories_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /categories - показать все категории"""
-        user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Добавляем пользователя в базу данных если его там нет
+        self.database.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+        
+        user_id = user.id
         user_categories = self.database.get_user_categories(user_id)
         
         categories_text = "📂 *ДОСТУПНЫЕ КАТЕГОРИИ НОВОСТЕЙ:*\n\n"
@@ -214,11 +224,31 @@ class EnhancedInfoMonitor:
     
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /settings - настройки пользователя"""
+        user = update.effective_user
+        
+        # Добавляем пользователя в базу данных если его там нет
+        self.database.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+        
         await self.show_categories_settings(update, context)
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - статистика пользователя"""
-        user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Добавляем пользователя в базу данных если его там нет
+        self.database.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+        
+        user_id = user.id
         user_categories = self.database.get_user_categories(user_id)
         feedback_stats = self.database.get_user_feedback_stats(user_id)
         
@@ -256,8 +286,17 @@ class EnhancedInfoMonitor:
         if data.startswith('toggle_category_'):
             # Переключение категории
             category = data.replace('toggle_category_', '')
-            user_id = update.effective_user.id
+            user = update.effective_user
             
+            # Добавляем пользователя в базу данных если его там нет
+            self.database.add_user(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name
+            )
+            
+            user_id = user.id
             user_categories = self.database.get_user_categories(user_id)
             is_enabled = category in user_categories
             
@@ -289,8 +328,18 @@ class EnhancedInfoMonitor:
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка обычных сообщений"""
-        user_id = update.effective_user.id
+        user = update.effective_user
         user_message = update.message.text.lower()
+        
+        # Добавляем пользователя в базу данных если его там нет
+        self.database.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name
+        )
+        
+        user_id = user.id
         
         # Обновляем активность пользователя
         self.database.update_user_activity(user_id)
