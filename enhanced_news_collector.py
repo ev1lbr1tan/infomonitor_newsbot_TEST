@@ -11,36 +11,67 @@ class EnhancedNewsCollector:
     """Улучшенный класс для сбора новостей с категориями и переводом"""
     
     def __init__(self):
-        # Словарь источников новостей по категориям
+        # Словарь источников новостей по категориям (расширенный)
         self.news_sources = {
             'политика': {
                 'ria': 'https://ria.ru/export/rss2/politics/index.xml',
                 'tass': 'https://tass.ru/rss/v2.xml',
                 'interfax': 'https://www.interfax.ru/rss.asp',
-                'vedomosti': 'https://www.vedomosti.ru/rss/news.xml'
+                'vedomosti': 'https://www.vedomosti.ru/rss/news.xml',
+                'regnum': 'https://www.regnum.ru/feed',
+                'gazeta': 'https://www.gazeta.ru/rss/articles.xml',
+                'lenta': 'https://lenta.ru/rss/news',
+                'vz': 'https://vz.ru/rssnews.xml',
+                'novaya_gazeta': 'https://novayagazeta.ru/rss/articles.xml',
+                'rt': 'https://www.rt.com/rss/all/'
             },
             'экономика': {
                 'rbc': 'https://rssexport.rbc.ru/news/20/5001001/full.rss',
                 'vedomosti': 'https://www.vedomosti.ru/rss/business.xml',
-                'regnum': 'https://www.regnum.ru/feed'
+                'regnum': 'https://www.regnum.ru/feed',
+                'kommersant': 'https://www.kommersant.ru/rss/economics.xml',
+                'prime': 'https://1prime.ru/rss/',
+                'forbes': 'https://forbes.ru/rss/feed.xml',
+                'vc': 'https://vc.ru/rss',
+                'bloomberg': 'https://feeds.bloomberg.com/markets/news.rss',
+                'market_watch': 'http://feeds.marketwatch.com/marketwatch/marketpulse/',
+                'financial_times': 'https://www.ft.com/rss/home'
             },
             'спорт': {
                 'ria_sport': 'https://rsport.ria.ru/export/rss2/news/index.xml',
                 'matchtv': 'https://matchtv.ru/rss/news.xml',
-                'tass_sport': 'https://tass.ru/rss/v2.xml'
+                'tass_sport': 'https://tass.ru/rss/v2.xml',
+                'championat': 'https://www.championat.com/rss/news.xml',
+                'sport_express': 'https://www.sport-express.ru/rss/news.xml',
+                'eurosport': 'https://www.eurosport.ru/rss/all-news.xml',
+                'espn': 'https://site.api.espn.com/apis/site/v2/sports/football/soccer/rss/news',
+                'sky_sports': 'https://www.skysports.com/rss/12040',
+                'goal': 'https://www.goal.com/rss/en/news',
+                'bbc_sport': 'https://feeds.bbci.co.uk/sport/rss.xml'
             },
             'технологии': {
                 'habr': 'https://habr.com/ru/rss/articles/',
                 'tadviser': 'https://www.tadviser.ru/rss.xml',
                 'vc': 'https://vc.ru/rss',
                 'techcrunch': 'https://techcrunch.com/feed/',
-                'the_verge': 'https://www.theverge.com/rss/index.xml'
+                'the_verge': 'https://www.theverge.com/rss/index.xml',
+                'wired': 'https://www.wired.com/feed/rss',
+                'arstechnica': 'http://feeds.arstechnica.com/arstechnica/index',
+                'engadget': 'https://www.engadget.com/rss.xml',
+                'mashable': 'https://mashable.com/feeds/rss/technology',
+                'cnet': 'https://www.cnet.com/rss/news/'
             },
             'мировые': {
                 'bbc': 'https://feeds.bbci.co.uk/news/rss.xml',
                 'reuters': 'https://feeds.reuters.com/Reuters/worldNews',
                 'cnn': 'http://rss.cnn.com/rss/edition.rss',
-                'guardian': 'https://www.theguardian.com/world/rss'
+                'guardian': 'https://www.theguardian.com/world/rss',
+                'ap': 'https://feeds.apnews.com/apf-worldnews',
+                'npr': 'https://feeds.npr.org/1001/rss.xml',
+                'wsj': 'https://feeds.a.dj.com/rss/RSSWorldNews.xml',
+                'nyt': 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',
+                'france24': 'https://www.france24.com/en/rss',
+                'dw': 'https://rss.dw.com/rdf/rss-en'
             }
         }
         

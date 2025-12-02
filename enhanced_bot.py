@@ -11,18 +11,8 @@ import asyncio
 from database import Database
 from enhanced_news_collector import EnhancedNewsCollector
 
-# Импорт для перевода (добавить в requirements.txt: googletrans==3.1.0-alpha)
-try:
-    from googletrans import Translator
-    translator = Translator()
-    TRANSLATION_AVAILABLE = True
-except ImportError:
-    translator = None
-    TRANSLATION_AVAILABLE = False
-    try:
-        logger.warning("googletrans не установлен. Перевод новостей будет недоступен.")
-    except:
-        pass  # logger может быть не определен при импорте
+# Перевод будет выполняться через LibreTranslate в enhanced_news_collector.py
+TRANSLATION_AVAILABLE = True
 
 # Настройка логирования
 logging.basicConfig(
@@ -47,13 +37,14 @@ class EnhancedInfoMonitor:
         self.translation_available = TRANSLATION_AVAILABLE
     
     def translate_text(self, text: str, dest_lang: str = 'ru') -> str:
-        """Перевод текста на указанный язык"""
-        if not self.translation_available or not translator or not text:
+        """Перевод текста на указанный язык через enhanced_news_collector"""
+        if not self.translation_available or not text:
             return text
         
         try:
-            translated = translator.translate(text, dest=dest_lang)
-            return translated.text
+            # Используем translate_text из news_collector
+            translated = self.news_collector.translate_text(text, dest_lang)
+            return translated or text
         except Exception as e:
             logger.warning(f"Ошибка при переводе: {e}")
             return text
