@@ -11,6 +11,19 @@ import asyncio
 from database import Database
 from enhanced_news_collector import EnhancedNewsCollector
 
+# Импорт для перевода (добавить в requirements.txt: googletrans==3.1.0-alpha)
+try:
+    from googletrans import Translator
+    translator = Translator()
+    TRANSLATION_AVAILABLE = True
+except ImportError:
+    translator = None
+    TRANSLATION_AVAILABLE = False
+    try:
+        logger.warning("googletrans не установлен. Перевод новостей будет недоступен.")
+    except:
+        pass  # logger может быть не определен при импорте
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -29,6 +42,21 @@ class EnhancedInfoMonitor:
         
         # Список доступных категорий
         self.categories = ['политика', 'экономика', 'спорт', 'технологии', 'мировые']
+        
+        # Доступность перевода
+        self.translation_available = TRANSLATION_AVAILABLE
+    
+    def translate_text(self, text: str, dest_lang: str = 'ru') -> str:
+        """Перевод текста на указанный язык"""
+        if not self.translation_available or not translator or not text:
+            return text
+        
+        try:
+            translated = translator.translate(text, dest=dest_lang)
+            return translated.text
+        except Exception as e:
+            logger.warning(f"Ошибка при переводе: {e}")
+            return text
         
     async def show_command_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать клавиатуру с основными командами"""
@@ -58,14 +86,29 @@ class EnhancedInfoMonitor:
         emoji = self.news_collector.get_category_emoji(news_item['category'])
         
         message = f"{emoji} *НОВОСТЬ {news_index}/{total_count}*\n\n"
-        message += f"*{news_item['title']}*\n\n"
         
-        # Информация о языке и переводе
+        # Обработка перевода для иностранных новостей
+        title_text = news_item['title']
         lang_info = ""
+        
         if news_item.get('original_language') == 'en':
             lang_info = " 🇬🇧 (на английском)"
+            # Пытаемся перевести на русский
+            if self.translation_available:
+                translated_title = self.translate_text(title_text, 'ru')
+                if translated_title and translated_title != title_text:
+                    message += f"*Перевод: {translated_title}*\n"
+                    message += f"🔥 *Оригинал: {title_text}*\n\n"
+                else:
+                    message += f"*{title_text}*\n\n"
+            else:
+                message += f"*{title_text}*\n\n"
+                
         elif news_item.get('original_language') == 'mixed':
             lang_info = " 🌍 (смешанный)"
+            message += f"*{title_text}*\n\n"
+        else:
+            message += f"*{title_text}*\n\n"
             
         message += f"🔗 [Читать полностью]({news_item['link']})\n"
         message += f"📰 Источник: {news_item['source']}{lang_info}\n"
@@ -83,12 +126,15 @@ class EnhancedInfoMonitor:
              InlineKeyboardButton("👎 Дизлайк", callback_data=f"dislike_{news_id}_{news_index}")]
         ]
         
-        # Кнопки навигации (если новостей больше одной)
+        # Кнопки навигации (если новостей больше одной) - ИСПРАВЛЕНО
         if total_count > 1:
             nav_buttons = []
+            # ИСПРАВЛЕНИЕ: Передаем правильный индекс для навигации
             if news_index > 1:
-                nav_buttons.append(InlineKeyboardButton("⬅️ Предыдущая", callback_data=f"nav_prev_{news_index}"))
+                # Для "предыдущая" переходим к news_index-1 (0-based: news_index-2)
+                nav_buttons.append(InlineKeyboardButton("⬅️ Предыдущая", callback_data=f"nav_prev_{news_index-1}"))
             if news_index < total_count:
+                # Для "следующая" переходим к news_index+1 (0-based: news_index)  
                 nav_buttons.append(InlineKeyboardButton("Следующая ➡️", callback_data=f"nav_next_{news_index}"))
             
             if nav_buttons:
@@ -474,22 +520,17 @@ class EnhancedInfoMonitor:
             await query.answer(f"{emoji} {feedback_text}", show_alert=False)
             
         elif data.startswith('nav_prev_') or data.startswith('nav_next_'):
-            # Обработка навигации между новостями
+            # Обработка навигации между новостями - УПРОЩЕНО
             parts = data.split('_')
             direction = parts[1]  # prev или next
-            current_index = int(parts[2])
+            # Теперь получаем индекс напрямую из callback_data
+            new_index = int(parts[2])
             
             # Получаем список новостей из контекста пользователя
             news_list = context.user_data.get('news_list', [])
             if not news_list:
                 await query.edit_message_text("😔 Список новостей не найден. Используйте /news для получения новых новостей.")
                 return
-            
-            # Вычисляем новый индекс (исправлено)
-            if direction == 'prev':
-                new_index = current_index - 1  # Переходим к предыдущей
-            else:  # direction == 'next'
-                new_index = current_index + 1  # Переходим к следующей (исправлено!)
             
             # Проверяем границы
             if new_index < 0 or new_index >= len(news_list):
@@ -506,9 +547,7 @@ class EnhancedInfoMonitor:
             context.user_data['current_news_index'] = new_index
             
             # Отправляем новую новость
-            logger.info(f"[DEBUG] button_callback: calling send_individual_news with new_index={new_index}")
-            logger.info(f"[DEBUG] button_callback: update type = {type(update)}")
-            logger.info(f"[DEBUG] button_callback: has callback_query = {hasattr(update, 'callback_query')}")
+            logger.info(f"[DEBUG] Navigation: {direction} to index {new_index}")
             
             await self.send_individual_news(
                 update, 
