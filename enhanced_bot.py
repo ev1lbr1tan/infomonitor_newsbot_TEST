@@ -1,7 +1,8 @@
 import os
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from typing import Dict
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -29,8 +30,82 @@ class EnhancedInfoMonitor:
         # Список доступных категорий
         self.categories = ['политика', 'экономика', 'спорт', 'технологии', 'мировые']
         
+    async def show_command_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать клавиатуру с основными командами"""
+        keyboard = [
+            ['📰 Новости', '🎯 Настройки'],
+            ['📊 Статистика', '📂 Категории'],
+            ['🆘 Помощь']
+        ]
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(
+            "📱 *Используйте кнопки ниже для быстрого доступа к функциям:*",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+    async def send_individual_news(self, update: Update, news_item: Dict, news_index: int, total_count: int):
+        """Отправить отдельную новость с кнопками лайк/дизлайк"""
+        emoji = self.news_collector.get_category_emoji(news_item['category'])
+        
+        message = f"{emoji} *НОВОСТЬ {news_index}/{total_count}*\n\n"
+        message += f"*{news_item['title']}*\n\n"
+        message += f"📝 {news_item['description']}\n\n"
+        
+        # Информация о языке и переводе
+        lang_info = ""
+        if news_item.get('original_language') == 'en':
+            lang_info = " 🇬🇧 (на английском)"
+        elif news_item.get('original_language') == 'mixed':
+            lang_info = " 🌍 (смешанный)"
+            
+        message += f"🔗 [Читать полностью]({news_item['link']})\n"
+        message += f"📰 Источник: {news_item['source']}{lang_info}\n"
+        
+        if news_item['published']:
+            message += f"🕐 {news_item['published']}\n"
+            
+        message += f"\n📊 Категория: {news_item['category']}"
+        
+        # Создаем inline кнопки для лайков
+        news_id = f"news_{news_index}_{hash(news_item['link']) % 10000}"
+        
+        keyboard = [
+            [InlineKeyboardButton("👍 Лайк", callback_data=f"like_{news_id}_{news_index}"),
+             InlineKeyboardButton("👎 Дизлайк", callback_data=f"dislike_{news_id}_{news_index}")]
+        ]
+        
+        # Кнопки навигации (если новостей больше одной)
+        if total_count > 1:
+            nav_buttons = []
+            if news_index > 1:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Предыдущая", callback_data=f"nav_prev_{news_index}"))
+            if news_index < total_count:
+                nav_buttons.append(InlineKeyboardButton("Следующая ➡️", callback_data=f"nav_next_{news_index}"))
+            
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            message,
+            parse_mode='Markdown',
+            disable_web_page_preview=True,
+            reply_markup=reply_markup
+        )
+        
+        # Обновляем статистику просмотров
+        self.database.update_news_stats(
+            news_link=news_item['link'],
+            title=news_item['title'],
+            category=news_item['category'],
+            view_increment=1
+        )
+        
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /start"""
+        """Команда /start - приветствие и настройка категорий"""
         user = update.effective_user
         
         # Добавляем пользователя в базу данных
@@ -41,39 +116,52 @@ class EnhancedInfoMonitor:
             last_name=user.last_name
         )
         
+        user_id = user.id
+        user_categories = self.database.get_user_categories(user_id)
+        
+        # Проверяем, первый ли это запуск пользователя
+        is_new_user = not user_categories or len(user_categories) == 0
+        
         welcome_text = f"""
 🤖 *Добро пожаловать в ИнфоМонитор!*
 
 Привет, {user.first_name}! 👋
 
-Я буду присылать вам актуальные новости каждый день в 9:00 утра (MSK).
+Я ваш персональный помощник для получения актуальных новостей! 📰
 
-📰 *Доступные категории новостей:*
-• 🏛️ Политика
-• 💰 Экономика  
-• ⚽ Спорт
-• 💻 Технологии
-• 🌍 Мировые новости
-
-🎯 *Особенности:*
-• Выберите интересующие категории
-• Лайкайте/дизлайкайте новости
-• ИИ-перевод иностранных новостей
-• Персонализированная лента
-
-📱 *Команды:*
-• /news - получить новости
-• /settings - настроить категории  
-• /stats - ваша статистика
-• /help - справка
-
-Давайте настроим ваши предпочтения!
+⏰ *Ежедневная рассылка в 9:00 утра (MSK)*
+🎯 *Персонализированные новости по вашим интересам*
+📱 *Удобная навигация с лайками и дизлайками*
         """
         
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
         
-        # Показываем настройку категорий
-        await self.show_categories_settings(update, context)
+        if is_new_user:
+            # Для новых пользователей - настраиваем категории сразу
+            setup_text = """
+🎯 *Давайте настроим ваши предпочтения!*
+
+Выберите категории новостей, которые вас интересуют.
+Вы всегда сможете изменить эти настройки позже командой `/settings` или кнопкой "🎯 Настройки".
+
+📰 *Доступные категории:*
+            """
+            
+            await update.message.reply_text(setup_text, parse_mode='Markdown')
+            await self.show_categories_settings(update, context)
+        else:
+            # Для существующих пользователей
+            categories_text = f"✅ *Ваши текущие категории: {', '.join(user_categories)}*"
+            await update.message.reply_text(categories_text, parse_mode='Markdown')
+            
+            # Показываем клавиатуру с командами
+            await self.show_command_keyboard(update, context)
+            
+            # Предлагаем получить новости
+            await update.message.reply_text(
+                "📰 Готов показать последние новости! Нажмите кнопку '📰 Новости' или используйте команду `/news`",
+                parse_mode='Markdown'
+            )
         
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
@@ -112,7 +200,7 @@ class EnhancedInfoMonitor:
         await update.message.reply_text(help_text, parse_mode='Markdown')
         
     async def news_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /news - получение новостей"""
+        """Команда /news - получение новостей по отдельности"""
         user_id = update.effective_user.id
         self.database.update_user_activity(user_id)
         
@@ -139,36 +227,18 @@ class EnhancedInfoMonitor:
                     news_list = self.news_collector.get_news_by_category(user_categories, limit=10)
                     category_text = f"ваших предпочтений ({', '.join(user_categories)})"
             
-            message = self.news_collector.format_news_message(news_list, show_categories=True)
-            message = f"📰 *Новости {category_text}:*\n\n" + message
+            if not news_list:
+                await update.message.reply_text("😔 К сожалению, новости не найдены. Попробуйте позже.")
+                return
             
-            # Добавляем кнопки лайков
-            keyboard = []
-            for i, news in enumerate(news_list[:5]):  # Максимум 5 новостей с кнопками
-                news_id = f"news_{i}_{hash(news['link']) % 10000}"  # Простой уникальный ID
-                keyboard.append([
-                    InlineKeyboardButton(f"👍 Лайк", callback_data=f"like_{news_id}_{i}"),
-                    InlineKeyboardButton(f"👎 Дизлайк", callback_data=f"dislike_{news_id}_{i}")
-                ])
+            # Сохраняем список новостей в контексте пользователя для навигации
+            context.user_data['news_list'] = news_list
+            context.user_data['category_text'] = category_text
+            context.user_data['current_news_index'] = 0
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Отправляем первую новость
+            await self.send_individual_news(update, news_list[0], 1, len(news_list))
             
-            sent_message = await update.message.reply_text(
-                message, 
-                parse_mode='Markdown', 
-                disable_web_page_preview=True,
-                reply_markup=reply_markup
-            )
-            
-            # Сохраняем статистику просмотров
-            for news in news_list:
-                self.database.update_news_stats(
-                    news_link=news['link'],
-                    title=news['title'],
-                    category=news['category'],
-                    view_increment=1
-                )
-                
         except Exception as e:
             logger.error(f"Ошибка при получении новостей: {e}")
             await update.message.reply_text("😔 Произошла ошибка при получении новостей. Попробуйте позже.")
@@ -215,9 +285,33 @@ class EnhancedInfoMonitor:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Определяем, новый ли это пользователь
+        is_new_user = not user_categories or len(user_categories) == 0
+        
+        if is_new_user:
+            message_text = """🎯 *Настройка категорий новостей*
+
+Выберите категории, которые вас интересуют. Я буду присылать вам персонализированные новости только по выбранным темам.
+
+📋 *Доступные категории:*
+• 🏛️ Политика - внутренняя и внешняя политика
+• 💰 Экономика - финансы, бизнес, рынки
+• ⚽ Спорт - все виды спорта и соревнования
+• 💻 Технологии - IT, гаджеты, инновации
+• 🌍 Мировые - международные события
+
+✅ *Выберите интересующие категории и нажмите "ГОТОВО"*"""
+        else:
+            selected_count = len(user_categories)
+            message_text = f"""🎯 *Настройка категорий новостей*
+
+📊 *Сейчас выбрано: {selected_count} категорий*
+{', '.join([f"{self.news_collector.get_category_emoji(cat)} {cat}" for cat in user_categories])}
+
+Измените свой выбор или нажмите "ГОТОВО" для сохранения."""
+        
         await update.message.reply_text(
-            "🎯 *Выберите интересующие вас категории новостей:*\n\n"
-            "Нажмите на категорию, чтобы включить/выключить её",
+            message_text,
             parse_mode='Markdown',
             reply_markup=reply_markup
         )
@@ -307,12 +401,25 @@ class EnhancedInfoMonitor:
             
         elif data == 'categories_done':
             # Завершение настройки категорий
-            await query.edit_message_text(
-                "✅ *Настройки сохранены!*\n\n"
-                "Теперь вы будете получать персонализированные новости.\n"
-                "Используйте команду `/news` для получения новостей.",
-                parse_mode='Markdown'
-            )
+            user_id = update.effective_user.id
+            user_categories = self.database.get_user_categories(user_id)
+            
+            if user_categories:
+                categories_list = ', '.join([f"{self.news_collector.get_category_emoji(cat)} {cat}" for cat in user_categories])
+                await query.edit_message_text(
+                    f"✅ *Настройки сохранены!*\n\n"
+                    f"🎯 *Выбранные категории:*\n{categories_list}\n\n"
+                    f"📰 Теперь вы будете получать персонализированные новости каждый день в 9:00 утра!\n\n"
+                    f"📱 *Сразу получить новости:* `/news` или нажмите кнопку '📰 Новости'",
+                    parse_mode='Markdown'
+                )
+            else:
+                await query.edit_message_text(
+                    "⚠️ *Категории не выбраны*\n\n"
+                    "Вы не выбрали ни одной категории. Выберите интересующие вас темы "
+                    "командой `/settings` или настройте их позже.",
+                    parse_mode='Markdown'
+                )
             
         elif data.startswith('like_') or data.startswith('dislike_'):
             # Обработка лайков/дизлайков
@@ -325,9 +432,49 @@ class EnhancedInfoMonitor:
             
             emoji = "👍" if feedback_type == "like" else "👎"
             await query.edit_message_text(f"{emoji} Спасибо за обратную связь!")
+            
+        elif data.startswith('nav_prev_') or data.startswith('nav_next_'):
+            # Обработка навигации между новостями
+            parts = data.split('_')
+            direction = parts[1]  # prev или next
+            current_index = int(parts[2])
+            
+            # Получаем список новостей из контекста пользователя
+            news_list = context.user_data.get('news_list', [])
+            if not news_list:
+                await query.edit_message_text("😔 Список новостей не найден. Используйте /news для получения новых новостей.")
+                return
+            
+            # Вычисляем новый индекс
+            if direction == 'prev':
+                new_index = current_index - 2  # -2 потому что current_index это номер текущей новости
+            else:  # direction == 'next'
+                new_index = current_index
+            
+            # Проверяем границы
+            if new_index < 0 or new_index >= len(news_list):
+                if direction == 'prev':
+                    await query.answer("⬅️ Это первая новость", show_alert=False)
+                else:
+                    await query.answer("➡️ Это последняя новость", show_alert=False)
+                return
+            
+            # Обновляем индекс в контексте
+            context.user_data['current_news_index'] = new_index
+            
+            # Отправляем новую новость
+            await self.send_individual_news(
+                update, 
+                news_list[new_index], 
+                new_index + 1,  # +1 для отображения (1-based)
+                len(news_list)
+            )
+            
+            # Удаляем предыдущее сообщение
+            await query.message.delete()
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка обычных сообщений"""
+        """Обработка обычных сообщений и кнопок клавиатуры"""
         user = update.effective_user
         user_message = update.message.text.lower()
         
@@ -344,7 +491,18 @@ class EnhancedInfoMonitor:
         # Обновляем активность пользователя
         self.database.update_user_activity(user_id)
         
-        if any(word in user_message for word in ['новости', 'news', 'что нового']):
+        # Обработка кнопок клавиатуры с командами
+        if user_message == '📰 новости':
+            await self.news_command(update, context)
+        elif user_message == '🎯 настройки':
+            await self.settings_command(update, context)
+        elif user_message == '📊 статистика':
+            await self.stats_command(update, context)
+        elif user_message == '📂 категории':
+            await self.categories_command(update, context)
+        elif user_message == '🆘 помощь':
+            await self.help_command(update, context)
+        elif any(word in user_message for word in ['новости', 'news', 'что нового']):
             await self.news_command(update, context)
         elif any(word in user_message for word in ['помощь', 'help', 'справка']):
             await self.help_command(update, context)
@@ -356,9 +514,9 @@ class EnhancedInfoMonitor:
             response = f"""
 🤖 Я ИнфоМонитор! 
 
-📰 Используйте команду `/news` чтобы получить последние новости прямо сейчас!
+📰 Используйте команду `/news` или кнопку "📰 Новости" чтобы получить последние новости прямо сейчас!
 
-🎯 Попробуйте `/settings` чтобы настроить интересующие вас категории новостей.
+🎯 Попробуйте `/settings` или кнопку "🎯 Настройки" чтобы настроить интересующие вас категории новостей.
 
 ⏰ Новости также приходят автоматически каждый день в 9:00 утра (MSK).
             """
