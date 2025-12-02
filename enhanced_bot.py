@@ -51,7 +51,6 @@ class EnhancedInfoMonitor:
         
         message = f"{emoji} *НОВОСТЬ {news_index}/{total_count}*\n\n"
         message += f"*{news_item['title']}*\n\n"
-        message += f"📝 {news_item['description']}\n\n"
         
         # Информация о языке и переводе
         lang_info = ""
@@ -63,7 +62,7 @@ class EnhancedInfoMonitor:
         message += f"🔗 [Читать полностью]({news_item['link']})\n"
         message += f"📰 Источник: {news_item['source']}{lang_info}\n"
         
-        if news_item['published']:
+        if news_item.get('published'):
             message += f"🕐 {news_item['published']}\n"
             
         message += f"\n📊 Категория: {news_item['category']}"
@@ -89,12 +88,30 @@ class EnhancedInfoMonitor:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            message,
-            parse_mode='Markdown',
-            disable_web_page_preview=True,
-            reply_markup=reply_markup
-        )
+        # Проверяем наличие изображения в новости
+        if news_item.get('image_url'):
+            try:
+                await update.message.reply_photo(
+                    photo=news_item['image_url'],
+                    caption=message,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить изображение: {e}")
+                await update.message.reply_text(
+                    message,
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True,
+                    reply_markup=reply_markup
+                )
+        else:
+            await update.message.reply_text(
+                message,
+                parse_mode='Markdown',
+                disable_web_page_preview=True,
+                reply_markup=reply_markup
+            )
         
         # Обновляем статистику просмотров
         self.database.update_news_stats(
@@ -427,11 +444,11 @@ class EnhancedInfoMonitor:
             feedback_type = parts[0]
             news_index = int(parts[2])
             
-            # Здесь можно добавить логику обработки лайков
-            # Пока что просто отвечаем пользователю
-            
+            # Показываем уведомление пользователю
             emoji = "👍" if feedback_type == "like" else "👎"
-            await query.edit_message_text(f"{emoji} Спасибо за обратную связь!")
+            feedback_text = "Спасибо за лайк!" if feedback_type == "like" else "Спасибо за обратную связь!"
+            
+            await query.answer(f"{emoji} {feedback_text}", show_alert=False)
             
         elif data.startswith('nav_prev_') or data.startswith('nav_next_'):
             # Обработка навигации между новостями
@@ -445,11 +462,11 @@ class EnhancedInfoMonitor:
                 await query.edit_message_text("😔 Список новостей не найден. Используйте /news для получения новых новостей.")
                 return
             
-            # Вычисляем новый индекс
+            # Вычисляем новый индекс (исправлено)
             if direction == 'prev':
-                new_index = current_index - 2  # -2 потому что current_index это номер текущей новости
+                new_index = current_index - 1  # Просто переходим к предыдущей
             else:  # direction == 'next'
-                new_index = current_index
+                new_index = current_index  # Переходим к следующей (индекс в news_list)
             
             # Проверяем границы
             if new_index < 0 or new_index >= len(news_list):
@@ -458,6 +475,9 @@ class EnhancedInfoMonitor:
                 else:
                     await query.answer("➡️ Это последняя новость", show_alert=False)
                 return
+            
+            # Удаляем предыдущее сообщение
+            await query.message.delete()
             
             # Обновляем индекс в контексте
             context.user_data['current_news_index'] = new_index
@@ -469,9 +489,6 @@ class EnhancedInfoMonitor:
                 new_index + 1,  # +1 для отображения (1-based)
                 len(news_list)
             )
-            
-            # Удаляем предыдущее сообщение
-            await query.message.delete()
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка обычных сообщений и кнопок клавиатуры"""
