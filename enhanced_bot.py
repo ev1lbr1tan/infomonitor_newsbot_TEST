@@ -369,18 +369,18 @@ class EnhancedInfoMonitor:
         try:
             if requested_category and requested_category in self.categories:
                 # Получаем новости конкретной категории  
-                news_list = self.news_collector.get_news_by_category([requested_category], limit=15)
+                news_list = await self.news_collector.get_telegram_news_by_category([requested_category], limit=15)
                 category_text = f"категории *{requested_category.upper()}*"
             else:
                 # Получаем предпочтительные категории пользователя
                 user_categories = self.database.get_user_categories(user_id)
                 if not user_categories:
                     # Если нет настроек, показываем все категории
-                    news_list = self.news_collector.get_all_news(limit=10)
+                    news_list = await self.news_collector.get_all_telegram_news(limit=10)
                     category_text = "всех доступных категорий"
                 else:
                     # Получаем новости по предпочтениям
-                    news_list = self.news_collector.get_news_by_category(user_categories, limit=10)
+                    news_list = await self.news_collector.get_telegram_news_by_category(user_categories, limit=10)
                     category_text = f"ваших предпочтений ({', '.join(user_categories)})"
             
             if not news_list:
@@ -454,6 +454,7 @@ class EnhancedInfoMonitor:
 • 💰 Экономика - финансы, бизнес, рынки
 • ⚽ Спорт - все виды спорта и соревнования
 • 💻 Технологии - IT, гаджеты, инновации
+• 📝 Разное - общие интересные новости
 • 🌍 Мировые - международные события
 
 ✅ *Выберите интересующие категории и нажмите "ГОТОВО"*"""
