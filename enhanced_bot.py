@@ -9,7 +9,8 @@ from apscheduler.triggers.cron import CronTrigger
 import asyncio
 
 from database import Database
-from enhanced_news_collector import EnhancedNewsCollector
+from telegram_news_collector import TelegramNewsCollector
+from news_sources_config import NewsSourcesConfig
 
 # Перевод будет выполняться через LibreTranslate в enhanced_news_collector.py
 TRANSLATION_AVAILABLE = True
@@ -26,28 +27,20 @@ class EnhancedInfoMonitor:
     
     def __init__(self, bot_token: str):
         self.bot_token = bot_token
-        self.news_collector = EnhancedNewsCollector()
+        # Создаем сборщик новостей на основе текущего источника
+        self.news_collector = TelegramNewsCollector(self.bot_token)
         self.database = Database()
         self.scheduler = AsyncIOScheduler()
         
         # Список доступных категорий
-        self.categories = ['политика', 'экономика', 'спорт', 'технологии', 'мировые']
+        self.categories = ['политика', 'экономика', 'спорт', 'технологии', 'разное', 'мировые']
         
         # Доступность перевода
         self.translation_available = TRANSLATION_AVAILABLE
     
     def translate_text(self, text: str, dest_lang: str = 'ru') -> str:
-        """Перевод текста на указанный язык через enhanced_news_collector"""
-        if not self.translation_available or not text:
-            return text
-        
-        try:
-            # Используем translate_text из news_collector
-            translated = self.news_collector.translate_text(text, dest_lang)
-            return translated or text
-        except Exception as e:
-            logger.warning(f"Ошибка при переводе: {e}")
-            return text
+        """Перевод текста - не нужен для Telegram источников (все на русском)"""
+        return text
         
     async def show_command_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать клавиатуру с основными командами"""
@@ -473,11 +466,32 @@ class EnhancedInfoMonitor:
 
 Измените свой выбор или нажмите "ГОТОВО" для сохранения."""
         
-        await update.message.reply_text(
-            message_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        # Определяем способ отправки в зависимости от контекста
+        if hasattr(update, 'callback_query') and update.callback_query:
+            # Callback контекст - используем query для редактирования сообщения
+            send_method = update.callback_query.message.edit_text
+            logger.info("[DEBUG] Using callback context for categories settings")
+        elif hasattr(update, 'message') and update.message:
+            # Обычный контекст команды - используем update.message
+            send_method = update.message.reply_text
+            logger.info("[DEBUG] Using command context for categories settings")
+        else:
+            logger.error("[DEBUG] No valid send method found for categories settings!")
+            raise Exception("Не удалось определить способ отправки сообщения для настроек категорий")
+        
+        try:
+            await send_method(
+                message_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.warning(f"Ошибка при отправке настроек категорий: {e}")
+            # Fallback: отправляем без форматирования
+            await send_method(
+                message_text.replace('*', '').replace('_', ''),
+                reply_markup=reply_markup
+            )
     
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /settings - настройки пользователя"""
