@@ -47,6 +47,14 @@ class EnhancedInfoMonitor:
         
     async def send_individual_news(self, update: Update, news_item: Dict, news_index: int, total_count: int):
         """Отправить отдельную новость с кнопками лайк/дизлайк"""
+        logger.info(f"[DEBUG] send_individual_news called with: news_index={news_index}, total_count={total_count}")
+        logger.info(f"[DEBUG] update object type: {type(update)}")
+        logger.info(f"[DEBUG] has message attr: {hasattr(update, 'message')}")
+        if hasattr(update, 'message') and update.message:
+            logger.info(f"[DEBUG] message object: {type(update.message)}")
+        else:
+            logger.warning("[DEBUG] No message attribute found in update object")
+        
         emoji = self.news_collector.get_category_emoji(news_item['category'])
         
         message = f"{emoji} *НОВОСТЬ {news_index}/{total_count}*\n\n"
@@ -89,9 +97,24 @@ class EnhancedInfoMonitor:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Проверяем наличие изображения в новости
+        # Определяем способ отправки в зависимости от контекста
+        if hasattr(update, 'callback_query') and update.callback_query:
+            # Callback контекст - используем query.message
+            send_method = update.callback_query.message.reply_text
+            send_photo_method = update.callback_query.message.reply_photo
+            logger.info("[DEBUG] Using callback context for sending")
+        elif hasattr(update, 'message') and update.message:
+            # Обычный контекст команды - используем update.message
+            send_method = update.message.reply_text
+            send_photo_method = update.message.reply_photo
+            logger.info("[DEBUG] Using command context for sending")
+        else:
+            logger.error("[DEBUG] No valid send method found!")
+            raise Exception("Не удалось определить способ отправки сообщения")
+            
         if news_item.get('image_url'):
             try:
-                await update.message.reply_photo(
+                await send_photo_method(
                     photo=news_item['image_url'],
                     caption=message,
                     parse_mode='Markdown',
@@ -99,14 +122,14 @@ class EnhancedInfoMonitor:
                 )
             except Exception as e:
                 logger.warning(f"Не удалось отправить изображение: {e}")
-                await update.message.reply_text(
+                await send_method(
                     message,
                     parse_mode='Markdown',
                     disable_web_page_preview=True,
                     reply_markup=reply_markup
                 )
         else:
-            await update.message.reply_text(
+            await send_method(
                 message,
                 parse_mode='Markdown',
                 disable_web_page_preview=True,
@@ -464,9 +487,9 @@ class EnhancedInfoMonitor:
             
             # Вычисляем новый индекс (исправлено)
             if direction == 'prev':
-                new_index = current_index - 1  # Просто переходим к предыдущей
+                new_index = current_index - 1  # Переходим к предыдущей
             else:  # direction == 'next'
-                new_index = current_index  # Переходим к следующей (индекс в news_list)
+                new_index = current_index + 1  # Переходим к следующей (исправлено!)
             
             # Проверяем границы
             if new_index < 0 or new_index >= len(news_list):
@@ -483,6 +506,10 @@ class EnhancedInfoMonitor:
             context.user_data['current_news_index'] = new_index
             
             # Отправляем новую новость
+            logger.info(f"[DEBUG] button_callback: calling send_individual_news with new_index={new_index}")
+            logger.info(f"[DEBUG] button_callback: update type = {type(update)}")
+            logger.info(f"[DEBUG] button_callback: has callback_query = {hasattr(update, 'callback_query')}")
+            
             await self.send_individual_news(
                 update, 
                 news_list[new_index], 
