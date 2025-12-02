@@ -64,6 +64,37 @@ class EnhancedInfoMonitor:
             reply_markup=reply_markup
         )
         
+    def escape_markdown(self, text: str) -> str:
+        """Экранирование специальных символов Markdown"""
+        if not text:
+            return text
+        # Экранируем символы, которые могут нарушить Markdown-разметку
+        # Добавляем экранирование для всех потенциально проблемных символов
+        escape_chars = ['*', '_', '`', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '!']
+        for char in escape_chars:
+            text = text.replace(char, '\\' + char)
+        return text
+    
+    def safe_markdown_text(self, text: str) -> str:
+        """Безопасный текст для Markdown с дополнительной проверкой"""
+        if not text:
+            return ""
+        
+        # Базовая очистка
+        text = text.strip()
+        
+        # Экранируем Markdown
+        text = self.escape_markdown(text)
+        
+        # Убираем потенциально проблемные символы
+        text = text.replace('\r', '').replace('\n\n\n', '\n\n')
+        
+        # Проверяем, что строка не слишком длинная
+        if len(text) > 1000:
+            text = text[:997] + "..."
+        
+        return text
+    
     async def send_individual_news(self, update: Update, news_item: Dict, news_index: int, total_count: int):
         """Отправить отдельную новость с кнопками лайк/дизлайк"""
         logger.info(f"[DEBUG] send_individual_news called with: news_index={news_index}, total_count={total_count}")
@@ -79,18 +110,33 @@ class EnhancedInfoMonitor:
         message = f"{emoji} *НОВОСТЬ {news_index}/{total_count}*\n\n"
         
         # Обработка перевода для иностранных новостей
-        title_text = news_item['title']
+        # Безопасная обработка всех текстовых полей
+        title_text = self.safe_markdown_text(news_item.get('title', 'Без заголовка'))
+        source_text = self.safe_markdown_text(news_item.get('source', 'Неизвестный источник'))
+        category_text = self.safe_markdown_text(news_item.get('category', 'общие'))
+        published_text = self.safe_markdown_text(news_item.get('published', ''))
+        link_text = self.safe_markdown_text(news_item.get('link', ''))
+        
         lang_info = ""
+        
+        # Логируем для диагностики
+        logger.info(f"[DEBUG] Original title: {news_item.get('title', 'NO_TITLE')}")
+        logger.info(f"[DEBUG] Safe title: {title_text}")
         
         if news_item.get('original_language') == 'en':
             lang_info = " 🇬🇧 (на английском)"
             # Пытаемся перевести на русский
             if self.translation_available:
-                translated_title = self.translate_text(title_text, 'ru')
-                if translated_title and translated_title != title_text:
-                    message += f"*Перевод: {translated_title}*\n"
-                    message += f"🔥 *Оригинал: {title_text}*\n\n"
-                else:
+                try:
+                    translated_original = self.translate_text(news_item.get('title', ''), 'ru')
+                    translated_title = self.safe_markdown_text(translated_original)
+                    if translated_title and translated_title != title_text:
+                        message += f"*Перевод: {translated_title}*\n"
+                        message += f"🔥 *Оригинал: {title_text}*\n\n"
+                    else:
+                        message += f"*{title_text}*\n\n"
+                except Exception as e:
+                    logger.warning(f"Ошибка перевода: {e}")
                     message += f"*{title_text}*\n\n"
             else:
                 message += f"*{title_text}*\n\n"
@@ -101,13 +147,13 @@ class EnhancedInfoMonitor:
         else:
             message += f"*{title_text}*\n\n"
             
-        message += f"🔗 [Читать полностью]({news_item['link']})\n"
-        message += f"📰 Источник: {news_item['source']}{lang_info}\n"
+        message += f"🔗 [Читать полностью]({link_text})\n"
+        message += f"📰 Источник: {source_text}{lang_info}\n"
         
-        if news_item.get('published'):
-            message += f"🕐 {news_item['published']}\n"
+        if published_text:
+            message += f"🕐 {published_text}\n"
             
-        message += f"\n📊 Категория: {news_item['category']}"
+        message += f"\n📊 Категория: {category_text}"
         
         # Создаем inline кнопки для лайков
         news_id = f"news_{news_index}_{hash(news_item['link']) % 10000}"
@@ -149,8 +195,10 @@ class EnhancedInfoMonitor:
             logger.error("[DEBUG] No valid send method found!")
             raise Exception("Не удалось определить способ отправки сообщения")
             
+        # Безопасная отправка сообщения с fallback-механизмом
         if news_item.get('image_url'):
             try:
+                # Пробуем отправить с изображением и Markdown
                 await send_photo_method(
                     photo=news_item['image_url'],
                     caption=message,
@@ -158,20 +206,58 @@ class EnhancedInfoMonitor:
                     reply_markup=reply_markup
                 )
             except Exception as e:
-                logger.warning(f"Не удалось отправить изображение: {e}")
+                logger.warning(f"Не удалось отправить изображение с Markdown: {e}")
+                try:
+                    # Fallback 1: Отправляем изображение без форматирования
+                    await send_photo_method(
+                        photo=news_item['image_url'],
+                        caption=self.safe_markdown_text(message),
+                        reply_markup=reply_markup
+                    )
+                except Exception as e2:
+                    logger.warning(f"Не удалось отправить изображение без форматирования: {e2}")
+                    # Fallback 2: Отправляем только текст без изображения
+                    try:
+                        await send_method(
+                            self.safe_markdown_text(message),
+                            parse_mode='Markdown',
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e3:
+                        logger.warning(f"Не удалось отправить с Markdown: {e3}")
+                        # Final fallback: Отправляем простой текст без форматирования
+                        await send_method(
+                            self.safe_markdown_text(message).replace('*', '').replace('_', ''),
+                            disable_web_page_preview=True,
+                            reply_markup=reply_markup
+                        )
+        else:
+            try:
+                # Пробуем отправить с полным форматированием
                 await send_method(
                     message,
                     parse_mode='Markdown',
                     disable_web_page_preview=True,
                     reply_markup=reply_markup
                 )
-        else:
-            await send_method(
-                message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True,
-                reply_markup=reply_markup
-            )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить с Markdown: {e}")
+                try:
+                    # Fallback: Отправляем без форматирования
+                    await send_method(
+                        self.safe_markdown_text(message),
+                        disable_web_page_preview=True,
+                        reply_markup=reply_markup
+                    )
+                except Exception as e2:
+                    logger.warning(f"Не удалось отправить без форматирования: {e2}")
+                    # Final fallback: Минимальное форматирование
+                    await send_method(
+                        self.safe_markdown_text(message).replace('*', '').replace('_', '').replace('[', '').replace(']', ''),
+                        disable_web_page_preview=True,
+                        reply_markup=reply_markup
+                    )
         
         # Обновляем статистику просмотров
         self.database.update_news_stats(
@@ -289,8 +375,8 @@ class EnhancedInfoMonitor:
         
         try:
             if requested_category and requested_category in self.categories:
-                # Получаем новости конкретной категории
-                news_list = self.news_collector.get_news_by_category([requested_category], limit=8)
+                # Получаем новости конкретной категории  
+                news_list = self.news_collector.get_news_by_category([requested_category], limit=15)
                 category_text = f"категории *{requested_category.upper()}*"
             else:
                 # Получаем предпочтительные категории пользователя
